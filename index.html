@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Pre-Flight (TOOL / 002) by Saint Gordon Collective — 100% in-browser broadcast loudness, 4x oversampled True Peak (dBTP), EBU R128 LRA, mono & stereo phase correlation, and streaming normalization A/B audition console."
+    />
+    <title>Pre-Flight — Saint Gordon Collective</title>
+    <link rel="icon" href="assets/icons/mark.svg" type="image/svg+xml" />
+    <link
+      rel="preload"
+      href="assets/fonts/OPTIEngraversOldEnglish.woff"
+      as="font"
+      type="font/woff"
+      crossorigin
+    />
+    <link rel="stylesheet" href="app.css?v=20261124-1" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to Pre-Flight console</a>
+
+    <!-- Saint Gordon Collective Header -->
+    <header class="site-header">
+      <div class="header-inner">
+        <a
+          class="brand"
+          href="#top"
+          id="brand-home-link"
+          aria-label="Pre-Flight by Saint Gordon Collective"
+        >
+          <img
+            src="assets/icons/mark.svg"
+            alt=""
+            width="36"
+            height="36"
+            class="brand-mark"
+          />
+          <span class="brand-text">
+            <span class="brand-name">Saint Gordon</span>
+            <span class="brand-sub">PRE-FLIGHT · RELEASE CHECKER</span>
+          </span>
+        </a>
+
+        <nav class="header-nav" aria-label="Console actions and links">
+          <div class="header-actions">
+            <span class="privacy-badge" id="mode-status-badge">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span>100% In-Browser</span>
+            </span>
+            <button
+              type="button"
+              id="btn-header-new"
+              class="sg-btn sg-btn-outline sg-btn-sm hidden"
+            >
+              Inspect New Master
+            </button>
+            <a
+              class="header-ext-link micro"
+              href="https://saintgordon.vercel.app"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Collective ↗
+            </a>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="app-main">
+      <!-- ================= HERO & MASTER UPLOAD ================= -->
+      <section id="upload-section" aria-labelledby="preflight-heading">
+        <div class="hero-meta micro">
+          <span>TOOL / 002 · RELEASE CHECKER</span>
+          <span>SAINT GORDON / PRE-FLIGHT</span>
+        </div>
+
+        <div class="hero-band" id="hero-band">
+          <div class="hero-title-col">
+            <h1 id="preflight-heading" class="page-wordmark">
+              Pre-Flight
+              <span>BROADCAST MASTER CHECKER</span>
+            </h1>
+          </div>
+          <div class="hero-copy-col">
+            <p class="hero-lead">
+              Check loudness, true peak, mono fold-down, and streaming turn-down before a single file reaches your distributor.
+            </p>
+            <p class="hero-sub">
+              Drop any stereo or mono master for full ITU-R BS.1770-4 LUFS metering, 4× oversampled polyphase True Peak (dBTP),
+              EBU R128 Loudness Range, sub-120 Hz phase inspection, and instant clickless A/B auditioning at exact Spotify,
+              Apple Music, YouTube, and TikTok playback levels — 100% locally inside your browser.
+            </p>
+          </div>
+        </div>
+
+        <!-- Master Audio Dropzone -->
+        <div
+          class="sg-card dropzone-card"
+          id="upload-dropzone"
+          role="region"
+          aria-label="Upload master audio file for Pre-Flight inspection"
+        >
+          <input
+            type="file"
+            id="file-upload-input"
+            accept="audio/*,.wav,.flac,.mp3,.m4a,.aac,.ogg,.opus,.aif,.aiff,.webm"
+            class="sr-only"
+          />
+
+          <div class="dropzone-body" id="dropzone-click-target">
+            <span class="micro dropzone-kicker">000 / MASTER FILE INSPECTION</span>
+            <h2 class="dropzone-heading">Drag &amp; Drop Your Master File Here</h2>
+            <p class="dropzone-formats">
+              Supports WAV, FLAC, MP3, M4A, AAC, OGG, and AIFF (on Safari). Audio stays strictly on your device — zero uploads, zero compression.
+            </p>
+
+            <div class="dropzone-buttons">
+              <button type="button" id="btn-select-file" class="sg-btn sg-btn-ink">
+                Select Master Audio File
+              </button>
+            </div>
+          </div>
+
+          <div class="dropzone-toolbar micro">
+            <span>ITU-R BS.1770-4 LUFS</span>
+            <span>4× OVERSAMPLED TRUE PEAK (dBTP)</span>
+            <span>EBU R128 LRA · MONO &amp; PHASE</span>
+            <span>SPOTIFY · APPLE · YOUTUBE · TIKTOK A/B</span>
+          </div>
+
+          <!-- Analysis Progress Bar -->
+          <div id="decode-progress-container" class="progress-wrap hidden" aria-live="polite">
+            <div class="progress-meta micro">
+              <span id="decode-progress-text">Decoding master audio...</span>
+              <span id="decode-progress-pct">0%</span>
+            </div>
+            <div class="progress-track">
+              <div id="decode-progress-bar" class="progress-fill"></div>
+            </div>
+          </div>
+
+          <!-- Decode Error Banner -->
+          <div id="decode-errors-banner" class="notice-banner hidden" role="alert">
+            <div class="notice-head">
+              <strong id="decode-errors-title">Could not inspect audio file</strong>
+              <button type="button" id="btn-dismiss-errors" class="sg-btn-link micro">
+                Dismiss ×
+              </button>
+            </div>
+            <p id="decode-errors-detail" class="notice-text"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= PRE-FLIGHT REPORT & STUDIO CONSOLE ================= -->
+      <section id="report-section" class="hidden" aria-label="Pre-Flight analysis report">
+        <!-- 1. Manifesto Verdict Sheet -->
+        <div class="verdict-sheet" id="verdict-sheet">
+          <div class="verdict-sheet-top micro">
+            <span class="verdict-stamp" id="verdict-stamp-badge">✳ CLEARED FOR RELEASE</span>
+            <span id="verdict-counts-label">7 PASS · 0 WARN · 0 FAIL</span>
+          </div>
+
+          <div class="verdict-head-grid">
+            <div>
+              <h2 class="verdict-title" id="verdict-headline">Cleared for Release.</h2>
+              <p class="verdict-subtitle" id="verdict-subtitle">
+                All broadcast loudness, true-peak ceiling, mono fold-down, and phase checks passed cleanly.
+              </p>
+            </div>
+            <div class="verdict-file-box">
+              <span class="micro verdict-file-kicker">INSPECTED MASTER</span>
+              <div id="report-filename" class="verdict-filename">—</div>
+              <div id="report-filespecs" class="verdict-specs micro">—</div>
+            </div>
+          </div>
+
+          <!-- 4 Hero Key Measurements -->
+          <div class="hero-metrics-grid">
+            <div class="hero-metric">
+              <span class="micro hero-metric-label">INTEGRATED LOUDNESS</span>
+              <strong class="hero-metric-val" id="hero-lufs">—</strong>
+              <span class="hero-metric-sub micro" id="hero-lufs-sub">ITU-R BS.1770-4</span>
+            </div>
+            <div class="hero-metric">
+              <span class="micro hero-metric-label">TRUE PEAK (4× FIR)</span>
+              <strong class="hero-metric-val" id="hero-true-peak">—</strong>
+              <span class="hero-metric-sub micro" id="hero-tp-sub">0 ISPs &gt; 0 dBTP</span>
+            </div>
+            <div class="hero-metric">
+              <span class="micro hero-metric-label">LOUDNESS RANGE</span>
+              <strong class="hero-metric-val" id="hero-lra">—</strong>
+              <span class="hero-metric-sub micro" id="hero-lra-sub">PSR — dB</span>
+            </div>
+            <div class="hero-metric">
+              <span class="micro hero-metric-label">STEREO PHASE</span>
+              <strong class="hero-metric-val" id="hero-phase">—</strong>
+              <span class="hero-metric-sub micro" id="hero-phase-sub">&lt;120 Hz —</span>
+            </div>
+          </div>
+
+          <div class="verdict-actions">
+            <button type="button" id="btn-export-md-top" class="sg-btn sg-btn-paper-solid">
+              Export Report (.md) ↓
+            </button>
+            <button type="button" id="btn-copy-summary-top" class="sg-btn sg-btn-paper">
+              Copy Summary
+            </button>
+            <a href="#audition-console" class="sg-btn sg-btn-paper-outline">
+              A/B Audition Deck ↓
+            </a>
+            <button type="button" id="btn-inspect-another" class="sg-btn sg-btn-paper-outline">
+              Load Another Master
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Interactive Fragment Deck — A/B Normalised Audition Console -->
+        <div id="audition-console" class="console-anchor">
+          <div class="section-bar">
+            <div>
+              <span class="micro">001 / FRAGMENT DECK · NORMALISED A/B AUDITION</span>
+              <h2 class="section-title">Hear Exact Streaming Turn-Down</h2>
+              <p class="section-sub">
+                Switch clicklessly between your original master and real platform playback gain with Stereo, Mono, and Side monitoring.
+              </p>
+            </div>
+          </div>
+
+          <div class="studio-deck" id="studio-deck" data-state="paused">
+            <div class="deck-head">
+              <div class="deck-id">
+                <span class="deck-led" aria-hidden="true"></span>
+                <span class="deck-label">FRAGMENT DECK // PRE-FLIGHT AUDITION</span>
+                <span class="deck-sub-id" id="deck-active-readout">ORIGINAL MASTER · 0.0 dB</span>
+              </div>
+              <div class="deck-head-right">
+                <span class="deck-state" id="deck-state-pill">STANDBY</span>
+              </div>
+            </div>
+
+            <!-- Platform Selector Bar -->
+            <div class="deck-platform-strip">
+              <span class="micro deck-strip-label">TARGET PLATFORM</span>
+              <div class="deck-platform-tabs" id="deck-platform-tabs" role="tablist" aria-label="Streaming platform normalization target">
+                <button type="button" class="platform-tab active" role="tab" aria-selected="true" data-platform="spotify">
+                  <span class="platform-tab-name">Spotify (-14)</span>
+                  <span class="platform-tab-gain" data-gain-badge="spotify">0.0 dB</span>
+                </button>
+                <button type="button" class="platform-tab" role="tab" aria-selected="false" data-platform="apple">
+                  <span class="platform-tab-name">Apple Music (-16)</span>
+                  <span class="platform-tab-gain" data-gain-badge="apple">0.0 dB</span>
+                </button>
+                <button type="button" class="platform-tab" role="tab" aria-selected="false" data-platform="youtube">
+                  <span class="platform-tab-name">YouTube (-14)</span>
+                  <span class="platform-tab-gain" data-gain-badge="youtube">0.0 dB</span>
+                </button>
+                <button type="button" class="platform-tab" role="tab" aria-selected="false" data-platform="tiktok">
+                  <span class="platform-tab-name">TikTok (-14)</span>
+                  <span class="platform-tab-gain" data-gain-badge="tiktok">0.0 dB</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Instant Clickless A / B Switch Bay -->
+            <div class="ab-bay-grid">
+              <button
+                type="button"
+                id="btn-side-a"
+                class="ab-bay-card active-play"
+                aria-pressed="true"
+              >
+                <span class="ab-bay-head">
+                  <span class="ab-bay-tag">
+                    <span class="contender-led" aria-hidden="true"></span>
+                    <span>A · ORIGINAL MASTER</span>
+                  </span>
+                  <kbd>1</kbd>
+                </span>
+                <span class="ab-bay-gain" id="ab-gain-a">0.0 dB</span>
+                <span class="ab-bay-meta micro" id="ab-meta-a">UNITY GAIN · DELIVERED FILE</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-side-b"
+                class="ab-bay-card ab-bay-b"
+                aria-pressed="false"
+              >
+                <span class="ab-bay-head">
+                  <span class="ab-bay-tag">
+                    <span class="contender-led" aria-hidden="true"></span>
+                    <span id="ab-title-b">B · SPOTIFY NORMALISED</span>
+                  </span>
+                  <kbd>2</kbd>
+                </span>
+                <span class="ab-bay-gain" id="ab-gain-b">0.0 dB</span>
+                <span class="ab-bay-meta micro" id="ab-meta-b">PLAYS AT -14.0 LUFS</span>
+              </button>
+            </div>
+
+            <!-- Interactive Full-Track Waveform with Overlays & Quick Jumps -->
+            <div class="deck-wave-toolbar">
+              <div class="deck-wave-group">
+                <span class="micro deck-strip-label">OVERLAY</span>
+                <div class="monitor-matrix" id="waveform-overlay-group" role="group" aria-label="Waveform telemetry overlay">
+                  <button type="button" class="deck-seg-btn active" data-overlay="lufs" aria-pressed="true">Short-Term LUFS</button>
+                  <button type="button" class="deck-seg-btn" data-overlay="phase" aria-pressed="false">Phase Corr.</button>
+                  <button type="button" class="deck-seg-btn" data-overlay="none" aria-pressed="false">Wave Only</button>
+                </div>
+              </div>
+
+              <div class="deck-wave-group">
+                <span class="micro deck-strip-label">JUMP TO</span>
+                <div class="quick-jump-group">
+                  <button type="button" id="btn-jump-intro" class="deck-mini-btn">Intro 0:00</button>
+                  <button type="button" id="btn-jump-loudest" class="deck-mini-btn">Loudest Chorus</button>
+                  <button type="button" id="btn-jump-worst" class="deck-mini-btn">Worst Phase/Clip</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="deck-timeline-row">
+              <span id="timeline-current-time" class="time-readout micro">00:00.0</span>
+              <div
+                class="timeline-wave-track"
+                id="timeline-scrubber"
+                role="slider"
+                tabindex="0"
+                aria-label="Full track waveform scrubber"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+              >
+                <canvas id="waveform-canvas" width="960" height="112"></canvas>
+                <div id="waveform-chorus-region" class="chorus-region-mask hidden"></div>
+                <div id="timeline-progress-bar" class="timeline-progress-mask"></div>
+                <div id="timeline-playhead" class="timeline-head"></div>
+                <span id="waveform-legend-tag" class="waveform-legend micro">SHORT-TERM LUFS OVERLAY · CLICK TO SEEK</span>
+              </div>
+              <span id="timeline-total-time" class="time-readout micro">00:00.0</span>
+            </div>
+
+            <!-- Live Studio Telemetry: L/R VU + 48-Band FFT + Live Phase Correlation Bar -->
+            <div class="deck-meters-row">
+              <div class="vu-column" aria-label="Left channel meter">
+                <span class="clip-led" id="clip-led-l" title="Left clip indicator"></span>
+                <div class="vu-track">
+                  <div id="vu-meter-l" class="vu-fill"></div>
+                  <div id="vu-peak-l" class="vu-peak-tick"></div>
+                </div>
+                <span class="micro vu-label">L</span>
+              </div>
+
+              <div class="telemetry-center">
+                <div class="spectrum-box">
+                  <canvas id="spectrum-canvas" width="700" height="84"></canvas>
+                  <span class="spectrum-tag micro" id="spectrum-mode-tag">STEREO · 48-BAND FFT</span>
+                </div>
+
+                <!-- Real-Time Phase Correlation Meter (-1 .. 0 .. +1) -->
+                <div class="live-phase-bar-wrap" aria-label="Live phase correlation meter">
+                  <div class="live-phase-meta micro">
+                    <span>LIVE PHASE CORRELATION</span>
+                    <span id="live-phase-readout">+1.00</span>
+                  </div>
+                  <div class="live-phase-track">
+                    <span class="phase-center-line" aria-hidden="true"></span>
+                    <div id="live-phase-fill" class="live-phase-fill"></div>
+                    <div id="live-phase-needle" class="live-phase-needle"></div>
+                  </div>
+                  <div class="live-phase-scale micro" aria-hidden="true">
+                    <span>-1.0 OUT</span>
+                    <span>-0.5</span>
+                    <span>0.0</span>
+                    <span>+0.5</span>
+                    <span>+1.0 MONO</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="vu-column" aria-label="Right channel meter">
+                <span class="clip-led" id="clip-led-r" title="Right clip indicator"></span>
+                <div class="vu-track">
+                  <div id="vu-meter-r" class="vu-fill"></div>
+                  <div id="vu-peak-r" class="vu-peak-tick"></div>
+                </div>
+                <span class="micro vu-label">R</span>
+              </div>
+            </div>
+
+            <!-- Transport & Stereo/Mono/Side Monitor Controls -->
+            <div class="deck-transport-bar">
+              <div class="transport-group">
+                <button type="button" id="btn-play-pause" class="deck-pill-btn deck-pill-primary">
+                  <span id="play-btn-glyph" aria-hidden="true">▶</span>
+                  <span id="play-btn-text">Play</span>
+                  <kbd>Space</kbd>
+                </button>
+
+                <button type="button" id="btn-loop-mode" class="deck-pill-btn" aria-pressed="false" title="Toggle 15 s Loudest Chorus Loop vs Full Track (L)">
+                  <span id="loop-btn-text">Loop: Full</span>
+                  <kbd>L</kbd>
+                </button>
+
+                <button type="button" id="btn-restart" class="deck-pill-btn" title="Restart from 0:00 (R)">
+                  ↺ <kbd>R</kbd>
+                </button>
+              </div>
+
+              <div class="transport-group monitor-matrix" id="monitor-matrix" role="group" aria-label="Monitoring matrix">
+                <button type="button" class="deck-seg-btn active" data-monitor="stereo" aria-pressed="true">Stereo</button>
+                <button type="button" class="deck-seg-btn" data-monitor="mono" aria-pressed="false" title="Mono sum check (M)">
+                  Mono <kbd>M</kbd>
+                </button>
+                <button type="button" class="deck-seg-btn" data-monitor="side" aria-pressed="false" title="Side difference L minus R (S)">
+                  Side <kbd>S</kbd>
+                </button>
+              </div>
+
+              <div class="transport-group">
+                <label class="deck-volume" for="master-volume-slider">
+                  <span class="micro">VOL</span>
+                  <input
+                    type="range"
+                    id="master-volume-slider"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value="0.88"
+                    aria-label="Master output volume"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div class="deck-shortcuts micro">
+              <span><kbd>Space</kbd> Play/Pause</span>
+              <span><kbd>1</kbd> Original (0 dB)</span>
+              <span><kbd>2</kbd> Normalised</span>
+              <span><kbd>M</kbd> Mono</span>
+              <span><kbd>S</kbd> Side</span>
+              <span><kbd>L</kbd> Loop Chorus/Full</span>
+              <span><kbd>R</kbd> Restart</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Streaming Platform Normalization Matrix -->
+        <div class="section-bar">
+          <div>
+            <span class="micro">002 / STREAMING NORMALIZATION ENGINE</span>
+            <h2 class="section-title">Platform Playback &amp; Codec Risk</h2>
+            <p class="section-sub">
+              Exact turn-down / boost adjustment, post-normalization True Peak, and lossy transcoding risk across major platforms.
+            </p>
+          </div>
+        </div>
+
+        <div class="platform-grid" id="platform-cards-grid"></div>
+
+        <!-- 4. Deep Engineering Readouts (2-Column Editorial Cards) -->
+        <div class="details-two-col">
+          <!-- Loudness & True Peak Card -->
+          <article class="sg-card detail-card">
+            <span class="micro detail-kicker">003 / BROADCAST LOUDNESS &amp; TRUE PEAK</span>
+            <h3 class="detail-title">ITU-R BS.1770-4 &amp; EBU R128 Specs</h3>
+
+            <dl class="spec-table" id="loudness-spec-list"></dl>
+
+            <div class="detail-divider"></div>
+
+            <span class="micro detail-kicker">SIGNAL INTEGRITY &amp; TRIM</span>
+            <dl class="spec-table" id="integrity-spec-list"></dl>
+
+            <div id="clip-events-wrap" class="clip-events-box hidden">
+              <span class="micro">WORST HARD CLIP BURSTS (CLICK TO AUDITION)</span>
+              <div id="clip-events-list" class="clip-events-list"></div>
+            </div>
+          </article>
+
+          <!-- Mono Compatibility & Stereo Phase Card -->
+          <article class="sg-card detail-card">
+            <span class="micro detail-kicker">004 / MONO COMPATIBILITY &amp; PHASE</span>
+            <h3 class="detail-title">Stereo Image &amp; Fold-Down Audit</h3>
+
+            <!-- Static Global + Min Correlation Scale -->
+            <div class="static-phase-box">
+              <div class="static-phase-head micro">
+                <span>CORRELATION RANGE</span>
+                <span id="static-phase-summary">AVG +1.00 · MIN +1.00</span>
+              </div>
+              <div class="static-phase-track">
+                <span class="static-phase-zero" aria-hidden="true"></span>
+                <div id="static-phase-span" class="static-phase-span"></div>
+                <div id="static-phase-min-pin" class="static-phase-pin pin-min" title="Minimum 500 ms correlation"></div>
+                <div id="static-phase-avg-pin" class="static-phase-pin pin-avg" title="Global average correlation"></div>
+              </div>
+              <div class="static-phase-scale micro" aria-hidden="true">
+                <span>-1.0 CANCEL</span>
+                <span>0.0 WIDE</span>
+                <span>+1.0 MONO</span>
+              </div>
+            </div>
+
+            <dl class="spec-table" id="stereo-spec-list"></dl>
+
+            <!-- Visual Width & Balance Bars -->
+            <div class="meter-bars-box">
+              <div class="meter-bar-item">
+                <div class="meter-bar-head micro">
+                  <span>STEREO WIDTH (SIDE RATIO)</span>
+                  <span id="width-pct-label">0%</span>
+                </div>
+                <div class="paper-bar-track">
+                  <div id="width-pct-fill" class="paper-bar-fill"></div>
+                </div>
+              </div>
+
+              <div class="meter-bar-item">
+                <div class="meter-bar-head micro">
+                  <span>L / R CHANNEL BALANCE</span>
+                  <span id="balance-db-label">0.0 dB</span>
+                </div>
+                <div class="paper-bar-track paper-bar-centered">
+                  <span class="paper-bar-center-tick" aria-hidden="true"></span>
+                  <div id="balance-db-fill" class="paper-bar-fill-center"></div>
+                </div>
+              </div>
+            </div>
+
+            <div id="worst-phase-cta" class="worst-phase-cta hidden">
+              <span class="micro" id="worst-phase-label">LOWEST PHASE AT 0:00</span>
+              <button type="button" id="btn-jump-worst-phase" class="sg-btn sg-btn-outline sg-btn-sm">
+                Audition in Mono →
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <!-- 5. Actionable Pre-Flight Verdict Checklist -->
+        <div class="sg-card checklist-card">
+          <div class="checklist-head">
+            <div>
+              <span class="micro">005 / RELEASE READINESS CHECKLIST</span>
+              <h3 class="detail-title">Engineering Pre-Flight Sign-Off</h3>
+            </div>
+            <div class="checklist-summary micro" id="checklist-summary-pill">7 / 7 CHECKS</div>
+          </div>
+
+          <ul id="preflight-checklist" class="checklist-list"></ul>
+
+          <div class="checklist-footer">
+            <div class="checklist-footer-copy">
+              <p class="checklist-note">
+                Export a plain-text Markdown certificate to archive alongside your release master or send to your client.
+              </p>
+            </div>
+            <div class="checklist-footer-actions">
+              <button type="button" id="btn-copy-summary-bottom" class="sg-btn sg-btn-outline">
+                Copy Summary
+              </button>
+              <button type="button" id="btn-export-md-bottom" class="paper-button">
+                <span>Export Certificate (.md)</span>
+                <span aria-hidden="true">↓</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Saint Gordon Collective Footer -->
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">Saint Gordon Collective</div>
+        <div class="footer-nav">
+          <a href="https://saintgordon.vercel.app" target="_blank" rel="noopener noreferrer">
+            Saint Gordon Home ↗
+          </a>
+          <a href="https://saintgordon.vercel.app/collection.html" target="_blank" rel="noopener noreferrer">
+            The Collection ↗
+          </a>
+          <a href="https://github.com/Firewallaby/pre-flight" target="_blank" rel="noopener noreferrer">
+            Pre-Flight on GitHub ↗
+          </a>
+        </div>
+        <div class="footer-meta micro">
+          <span>© <span id="footer-year">2026</span> SAINT GORDON COLLECTIVE</span>
+          <span>INDEPENDENT SOUND. IMPERFECT BY DESIGN.</span>
+          <span>100% CLIENT-SIDE WEB AUDIO</span>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Global Toast Notifications -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="js/app.js?v=20261124-1"></script>
+  </body>
+</html>
