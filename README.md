@@ -2,7 +2,7 @@
 
 > **Broadcast Loudness, True Peak, Phase & Streaming Release Checker** — 100% client-side in your browser, built in the editorial monochrome studio style of [Saint Gordon Collective](https://saintgordon.vercel.app).
 
-**Live App:** [https://firewallaby.github.io/pre-flight/](https://firewallaby.github.io/pre-flight/)
+**Live App:** [https://saintgordon.github.io/pre-flight/](https://saintgordon.github.io/pre-flight/)
 
 ---
 
