@@ -308,3 +308,102 @@ test('End-to-end runPreFlightAnalysis, checklist verdicts, and Markdown certific
   assert.equal(formatSignedDb(-5.8, 1), '-5.8 dB');
   assert.equal(formatSignedDb(2.4, 1), '+2.4 dB');
 });
+
+test('Plain-English fix steps, headlines, jump targets, and platform plainAction / plainStatus', () => {
+  const sr = 48000;
+
+  // 1. Clean passing dynamic stereo track (healthy transients -> PSR >= 8 dB, LRA >= 3 LU, ~-13 LUFS, ~-2 dBTP)
+  const cleanLen = 4 * sr;
+  const cleanL = new Float32Array(cleanLen);
+  const cleanR = new Float32Array(cleanLen);
+  const fadeSamples = Math.floor(0.02 * sr);
+  for (let i = 0; i < cleanLen; i++) {
+    const t = i / sr;
+    const beatPos = t % 0.5;
+    // Percussive transient + warm sustained chord gives natural PSR (~9-11 dB) & clean dynamics
+    const env = 0.14 + 0.58 * Math.exp(-beatPos * 14);
+    const s = env * Math.sin((2 * Math.PI * 440 * i) / sr);
+    cleanL[i] = s;
+    cleanR[i] = s;
+  }
+  for (let i = 0; i < fadeSamples; i++) {
+    const g = i / fadeSamples;
+    cleanL[i] *= g;
+    cleanR[i] *= g;
+    cleanL[cleanLen - 1 - i] *= g;
+    cleanR[cleanLen - 1 - i] *= g;
+  }
+
+  const cleanReport = runPreFlightAnalysis([cleanL, cleanR], sr, {
+    filename: 'Clean_Master.wav',
+    formatLabel: 'WAV',
+  });
+  assert.equal(cleanReport.verdict.failCount, 0);
+  assert.equal(cleanReport.verdict.plainHeadline, 'Ready to Upload.');
+  assert.ok(typeof cleanReport.verdict.plainSubtitle === 'string' && cleanReport.verdict.plainSubtitle.length > 10);
+  for (const c of cleanReport.verdict.checks) {
+    assert.ok(typeof c.plainTitle === 'string' && c.plainTitle.length > 5);
+    assert.ok(typeof c.whatsWrong === 'string' && c.whatsWrong.length > 10);
+    assert.ok(Array.isArray(c.fixSteps));
+    if (c.status === 'pass') {
+      assert.equal(c.fixSteps.length, 0);
+    }
+  }
+
+  // 2. Failing track: clipped bursts + out-of-phase bass -> MUST produce plainTitle, whatsWrong, 2-3 DAW fixSteps, jumpTarget
+  const len = 4 * sr;
+  const badL = new Float32Array(len);
+  const badR = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    const sub = 0.5 * Math.sin((2 * Math.PI * 70 * i) / sr);
+    const mid = 0.3 * Math.sin((2 * Math.PI * 880 * i) / sr);
+    badL[i] = sub + mid;
+    badR[i] = -sub + mid;
+  }
+  // Inject hard clip burst at 1.5s
+  const clipAt = Math.floor(1.5 * sr);
+  for (let k = 0; k < 10; k++) {
+    badL[clipAt + k] = 1.0;
+    badR[clipAt + k] = 1.0;
+  }
+
+  const badReport = runPreFlightAnalysis([badL, badR], sr, {
+    filename: 'Needs_Fixes.wav',
+    formatLabel: 'WAV',
+  });
+
+  assert.ok(badReport.verdict.failCount >= 2);
+  assert.match(badReport.verdict.plainHeadline, /^Fix \d+ Things Before Uploading\.$/);
+
+  const clipCheck = badReport.verdict.checks.find((c) => c.id === 'clipping');
+  assert.equal(clipCheck.status, 'fail');
+  assert.equal(clipCheck.plainTitle, 'Audible clipping (distortion) found in your file');
+  assert.ok(clipCheck.fixSteps.length >= 2 && clipCheck.fixSteps.length <= 3);
+  assert.equal(clipCheck.jumpTarget.type, 'clip');
+
+  const bassCheck = badReport.verdict.checks.find((c) => c.id === 'low-end-phase');
+  assert.equal(bassCheck.status, 'fail');
+  assert.equal(bassCheck.plainTitle, 'Your bass / 808 will vanish on club & mono speakers');
+  assert.ok(bassCheck.fixSteps.length >= 2 && bassCheck.fixSteps.length <= 3);
+  assert.equal(bassCheck.jumpTarget.monitorMode, 'mono');
+
+  // 3. Platform plainAction & plainStatus
+  const hotPlats = computePlatformNormalization(-9.2, -0.3);
+  const spHot = hotPlats.find((p) => p.id === 'spotify');
+  assert.equal(spHot.plainAction, 'Turned down 4.8 dB');
+  assert.equal(spHot.plainStatus, 'May crackle — lower peak ceiling to -1.0 dB');
+
+  const quietPlats = computePlatformNormalization(-18.0, -4.0);
+  const ytQuiet = quietPlats.find((p) => p.id === 'youtube');
+  assert.equal(ytQuiet.plainAction, 'No volume change');
+  assert.equal(ytQuiet.plainStatus, 'Will sound quieter than expected');
+  const spQuiet = quietPlats.find((p) => p.id === 'spotify');
+  assert.equal(spQuiet.plainAction, 'Boosted +4.0 dB');
+
+  // 4. Markdown report leads with Fix Steps before Technical Numbers and uses canonical URL
+  const md = generatePreFlightMarkdown(badReport);
+  assert.ok(md.includes('https://saintgordon.github.io/pre-flight/'));
+  const fixIdx = md.indexOf('## Fix Steps');
+  const techIdx = md.indexOf('## Full Technical Numbers');
+  assert.ok(fixIdx > 0 && techIdx > fixIdx, 'Fix Steps should appear before Full Technical Numbers in Markdown export');
+});

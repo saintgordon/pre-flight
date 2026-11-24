@@ -1201,13 +1201,36 @@ export function computePlatformNormalization(integratedLufs, truePeakDb) {
           : 'Matches target loudness with clean codec headroom.';
     }
 
+    const roundedGain = round1(gainDb);
+    let plainAction = 'No volume change';
+    if (roundedGain < 0) {
+      plainAction = `Turned down ${Math.abs(roundedGain).toFixed(1)} dB`;
+    } else if (roundedGain > 0) {
+      plainAction = `Boosted +${roundedGain.toFixed(1)} dB`;
+    }
+
+    let plainStatus = 'Safe to upload';
+    if (safeTP > 0.0 || safeTP > platform.ceilingDbtp) {
+      plainStatus = 'May crackle — lower peak ceiling to -1.0 dB';
+    } else if (limiterEngaged) {
+      plainStatus = `${platform.name} limiter kicks in — may sound squashed`;
+    } else if (platform.id === 'spotify' && safeLufs > -11.0 && safeTP > platform.loudCeilingDbtp) {
+      plainStatus = 'Very loud song — -2.0 dB ceiling is safer here';
+    } else if (gainDb <= -6.0) {
+      plainStatus = 'Turned down heavily — compare punch on the A/B player';
+    } else if (!platform.canBoost && rawDeltaDb > 3.0) {
+      plainStatus = 'Will sound quieter than expected';
+    } else if (headroomCapped) {
+      plainStatus = 'Boosted safely up to ceiling';
+    }
+
     return {
       id: platform.id,
       name: platform.name,
       shortLabel: platform.shortLabel,
       targetLufs: platform.targetLufs,
       ceilingDbtp: platform.ceilingDbtp,
-      gainDb: round1(gainDb),
+      gainDb: roundedGain,
       gainLinear: Math.pow(10, gainDb / 20),
       postNormLufs: round1(postNormLufs),
       postNormTruePeakDb: round2(postNormTruePeakDb),
@@ -1218,13 +1241,15 @@ export function computePlatformNormalization(integratedLufs, truePeakDb) {
       badge,
       codecRisk,
       summary,
+      plainAction,
+      plainStatus,
       note: platform.note,
     };
   });
 }
 
 /* --------------------------------------------------------------------------
- * Pre-Flight Engineering Verdict Checklist
+ * Pre-Flight Engineering Verdict Checklist + Plain-English DAW Fix Steps
  * -------------------------------------------------------------------------- */
 
 export function buildPreFlightChecklist(report) {
@@ -1240,6 +1265,19 @@ export function buildPreFlightChecklist(report) {
       badge: 'FAIL',
       value: `${truePeak.truePeakDb.toFixed(2)} dBTP`,
       detail: `${truePeak.ispCount.toLocaleString()} inter-sample peak instant(s) exceed 0.0 dBTP. Lower limiter ceiling to -1.0 dBTP (or -2.0 dBTP for hot masters).`,
+      plainTitle: 'Peaks are too loud — will distort on Spotify & Apple Music',
+      whatsWrong: 'Your audio peaks go past 0 dB between digital samples, so streaming apps will add harsh crackling when converting your song for playback.',
+      fixSteps: [
+        'Open the limiter on your master track (e.g. Logic Adaptive Limiter, FabFilter Pro-L, Ozone, or Fruity Limiter).',
+        'Turn ON True Peak Limiting and set the Output Ceiling to -1.0 dB (use -1.5 dB or -2.0 dB if your song is very loud).',
+        'Re-export your WAV file and drop it back in here to confirm it passes.',
+      ],
+      jumpTarget: {
+        type: 'loudest',
+        timeSec: Math.max(0, truePeak.truePeakTimeSec - 1.0),
+        label: `Jump to ${formatTime(truePeak.truePeakTimeSec)} & Hear`,
+        monitorMode: 'stereo',
+      },
     });
   } else if (truePeak.truePeakDb > -1.0) {
     checks.push({
@@ -1249,6 +1287,19 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `${truePeak.truePeakDb.toFixed(2)} dBTP`,
       detail: `Exceeds the -1.0 dBTP streaming ceiling (${truePeak.ceilingBreachCount.toLocaleString()} breach instants). Lossy codecs (AAC/Vorbis) may clip on transcode.`,
+      plainTitle: 'Peaks are slightly too close to the ceiling',
+      whatsWrong: 'Your loudest peaks sit above -1.0 dB, leaving almost no safety room when Spotify or Apple Music compress your song for streaming.',
+      fixSteps: [
+        'Open the limiter on your master track (e.g. Logic Adaptive Limiter, FabFilter Pro-L, Ozone, or Fruity Limiter).',
+        'Turn ON True Peak Limiting and set the Output Ceiling to -1.0 dB (use -1.5 dB or -2.0 dB if your song is very loud).',
+        'Re-export your WAV file and drop it back in here to confirm it passes.',
+      ],
+      jumpTarget: {
+        type: 'loudest',
+        timeSec: Math.max(0, truePeak.truePeakTimeSec - 1.0),
+        label: `Jump to ${formatTime(truePeak.truePeakTimeSec)} & Hear`,
+        monitorMode: 'stereo',
+      },
     });
   } else if (loudness.integratedLufs > -11.0 && truePeak.truePeakDb > -2.0) {
     checks.push({
@@ -1258,6 +1309,19 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `${truePeak.truePeakDb.toFixed(2)} dBTP`,
       detail: 'Clears -1.0 dBTP, but hot masters (> -11 LUFS) benefit from -2.0 dBTP headroom for Spotify Ogg Vorbis transcoding.',
+      plainTitle: 'Peaks are slightly too close to the ceiling',
+      whatsWrong: 'Your song is very loud (above -11 LUFS). Spotify recommends a -2.0 dB peak ceiling on loud releases so big hits stay crisp after streaming compression.',
+      fixSteps: [
+        'Open the limiter on your master track and turn ON True Peak Limiting.',
+        'Lower the Output Ceiling to -2.0 dB (or pull the limiter input back 1–2 dB).',
+        'Re-export your WAV file and drop it back in here to confirm.',
+      ],
+      jumpTarget: {
+        type: 'loudest',
+        timeSec: Math.max(0, truePeak.truePeakTimeSec - 1.0),
+        label: `Jump to ${formatTime(truePeak.truePeakTimeSec)} & Hear`,
+        monitorMode: 'stereo',
+      },
     });
   } else {
     checks.push({
@@ -1267,12 +1331,17 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: `${truePeak.truePeakDb.toFixed(2)} dBTP`,
       detail: 'Clean true-peak headroom below -1.0 dBTP with zero inter-sample clipping.',
+      plainTitle: 'Peak ceiling is clean and streaming-safe',
+      whatsWrong: 'Your loudest peaks stay safely below -1.0 dB, so streaming apps can convert your song cleanly without distortion.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   }
 
   // 2. Digital Clipping Bursts
   if (integrity.clipBurstCount > 0) {
     const worstAt = integrity.worstClipSec !== null ? ` Worst burst at ${formatTime(integrity.worstClipSec, true)}.` : '';
+    const worstShort = integrity.worstClipSec !== null ? ` (worst at ${formatTime(integrity.worstClipSec)})` : '';
     checks.push({
       id: 'clipping',
       label: 'Digital Clipping',
@@ -1280,6 +1349,21 @@ export function buildPreFlightChecklist(report) {
       badge: 'FAIL',
       value: `${integrity.clipBurstCount} burst${integrity.clipBurstCount === 1 ? '' : 's'}`,
       detail: `${integrity.clippedSampleCount.toLocaleString()} sample(s) hit 0 dBFS with ${integrity.clipBurstCount} hard clip run(s) ≥ 3 samples.${worstAt}`,
+      plainTitle: 'Audible clipping (distortion) found in your file',
+      whatsWrong: `We found ${integrity.clipBurstCount} hard clip burst${integrity.clipBurstCount === 1 ? '' : 's'} where the audio flattens out at 0 dB${worstShort}. Listeners hear this as harsh digital crunch.`,
+      fixSteps: [
+        'Open the limiter on your master track (e.g. Logic Adaptive Limiter, FabFilter Pro-L, Ozone, or Fruity Limiter).',
+        'Turn ON True Peak Limiting, set the Output Ceiling to -1.0 dB, and turn down any red-clipping tracks hitting your master bus.',
+        'Re-export your WAV file and drop it back in here to confirm it reaches 0 clips.',
+      ],
+      jumpTarget: integrity.worstClipSec !== null
+        ? {
+            type: 'clip',
+            timeSec: Math.max(0, integrity.worstClipSec - 1.0),
+            label: `Jump to ${formatTime(integrity.worstClipSec)} & Hear`,
+            monitorMode: 'stereo',
+          }
+        : null,
     });
   } else if (integrity.clippedSampleCount > 0) {
     checks.push({
@@ -1289,6 +1373,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `${integrity.clippedSampleCount} sample${integrity.clippedSampleCount === 1 ? '' : 's'}`,
       detail: 'Isolated single/double samples touch 0.0 dBFS without hard clip bursts. Pull output trim down 0.5–1.0 dB.',
+      plainTitle: 'A few tiny peaks hit 0 dB',
+      whatsWrong: 'A handful of single samples touch maximum volume (0 dB). Usually hard to hear, but pulling your ceiling down 1.0 dB prevents streaming encoders from crackling.',
+      fixSteps: [
+        'Open the limiter on your master track and turn ON True Peak Limiting.',
+        'Set the Output Ceiling to -1.0 dB and re-export your WAV file.',
+      ],
+      jumpTarget: {
+        type: 'clip',
+        timeSec: Math.max(0, truePeak.truePeakTimeSec - 1.0),
+        label: `Jump to ${formatTime(truePeak.truePeakTimeSec)} & Hear`,
+        monitorMode: 'stereo',
+      },
     });
   } else {
     checks.push({
@@ -1298,6 +1394,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: '0 clips',
       detail: 'Zero samples reaching full scale (≥ 0.9999) across all channels.',
+      plainTitle: 'Zero digital clipping',
+      whatsWrong: 'No samples slam into 0 dB anywhere in your song — completely clean waveform.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   }
 
@@ -1310,6 +1410,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `${loudness.integratedLufs.toFixed(1)} LUFS · PSR ${psrDb.toFixed(1)} dB`,
       detail: `Heavily limited master (LRA ${loudness.lraLu.toFixed(1)} LU). Streaming platforms will turn this down significantly without restoring transient punch.`,
+      plainTitle: 'Your master is squashed very loud (losing punch)',
+      whatsWrong: 'Your song is pushed very hard into a limiter. Streaming apps will turn it down anyway, which can make squashed drums sound smaller than a more dynamic master.',
+      fixSteps: [
+        'Pull the input gain / threshold on your master limiter back by 1.5–3 dB so drums can breathe again.',
+        'Use the A/B player below to hear Spotify turn your song down — backing off the limiter often sounds punchier after normalization.',
+      ],
+      jumpTarget: {
+        type: 'loudest',
+        timeSec: loudness.loudestMomentSec,
+        label: `Hear Loudest Part (${formatTime(loudness.loudestMomentSec)})`,
+        monitorMode: 'stereo',
+      },
     });
   } else if (loudness.integratedLufs < -20.0) {
     checks.push({
@@ -1319,6 +1431,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `${loudness.integratedLufs.toFixed(1)} LUFS · LRA ${loudness.lraLu.toFixed(1)} LU`,
       detail: 'Noticeably quieter than -14 LUFS streaming targets; YouTube and TikTok will not boost it up.',
+      plainTitle: 'Your song is noticeably quieter than most releases',
+      whatsWrong: 'Your track averages much quieter than standard streaming levels. YouTube and TikTok never turn quiet songs up, so listeners will have to reach for their volume knob.',
+      fixSteps: [
+        'Add gentle limiting on your master bus until your chorus averages around -14 to -9 LUFS.',
+        'Keep your Output Ceiling at -1.0 dB so it stays clean without clipping.',
+      ],
+      jumpTarget: {
+        type: 'loudest',
+        timeSec: loudness.loudestMomentSec,
+        label: 'Hear on Streaming A/B',
+        monitorMode: 'stereo',
+      },
     });
   } else if (durationSec >= 8 && loudness.lraLu < 2.2) {
     checks.push({
@@ -1328,6 +1452,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `LRA ${loudness.lraLu.toFixed(1)} LU · PSR ${psrDb.toFixed(1)} dB`,
       detail: 'Very flat macro-dynamic range (< 2.2 LU). Confirm verse/chorus contrast is intentional.',
+      plainTitle: 'Volume stays very flat from start to finish',
+      whatsWrong: 'Your verses and choruses stay at almost the exact same loudness. If you want your chorus to feel bigger, a little extra contrast helps.',
+      fixSteps: [
+        'Automate your chorus 0.5–1.5 dB louder than your verses, or ease off heavy master-bus compression.',
+        'If a constant, steady volume is intentional for your style, you can safely skip this tip.',
+      ],
+      jumpTarget: {
+        type: 'loudest',
+        timeSec: loudness.loudestMomentSec,
+        label: `Hear Loudest Part (${formatTime(loudness.loudestMomentSec)})`,
+        monitorMode: 'stereo',
+      },
     });
   } else {
     checks.push({
@@ -1337,6 +1473,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: `${loudness.integratedLufs.toFixed(1)} LUFS · LRA ${loudness.lraLu.toFixed(1)} LU`,
       detail: `Healthy dynamic profile (PSR ${psrDb.toFixed(1)} dB, Crest ${loudness.crestDb.toFixed(1)} dB).`,
+      plainTitle: 'Good balance of loudness and punch',
+      whatsWrong: 'Your loudness and dynamics sit in a sweet spot — competitive volume while keeping drums and transients punchy.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   }
 
@@ -1349,6 +1489,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: 'Native Mono',
       detail: 'Single-channel mono audio translates identically on phones, club rigs, and smart speakers.',
+      plainTitle: 'Sounds solid on phones, clubs & mono speakers',
+      whatsWrong: 'Your song is native mono, so it plays back identically on phones, smart speakers, and club systems.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   } else if (stereo.monoLossDb < -4.5) {
     checks.push({
@@ -1358,6 +1502,19 @@ export function buildPreFlightChecklist(report) {
       badge: 'FAIL',
       value: `${stereo.monoLossDb.toFixed(1)} dB loss`,
       detail: `Severe energy cancellation when summed to mono (width ${stereo.stereoWidthPct.toFixed(0)}%). Audition in Mono [M] immediately.`,
+      plainTitle: 'Parts of your song disappear on phone & mono speakers',
+      whatsWrong: `When played on a phone speaker or club PA, your mix loses ${Math.abs(stereo.monoLossDb).toFixed(1)} dB of volume — key vocals, synths, or guitars can sound hollow or vanish.`,
+      fixSteps: [
+        'Click "Hear in Phone / Mono" below to hear which instrument or vocal drops in volume.',
+        'Turn down stereo widener, chorus, or Haas-delay plugins on that track, or check if a phase/polarity button is flipped.',
+        'Re-export and test in Mono again until your lead elements stay full and centered.',
+      ],
+      jumpTarget: {
+        type: 'phase',
+        timeSec: stereo.worstPhaseSec !== null ? stereo.worstPhaseSec : loudness.loudestMomentSec,
+        label: 'Hear in Phone / Mono',
+        monitorMode: 'mono',
+      },
     });
   } else if (stereo.monoLossDb < -3.0) {
     checks.push({
@@ -1367,6 +1524,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `${stereo.monoLossDb.toFixed(1)} dB loss`,
       detail: `Wide stereo image (${stereo.stereoWidthPct.toFixed(0)}% side ratio) loses noticeable energy in mono. Verify lead elements in Mono [M].`,
+      plainTitle: 'Your stereo mix gets noticeably thinner in mono',
+      whatsWrong: `Your mix is quite wide and drops ${Math.abs(stereo.monoLossDb).toFixed(1)} dB on mono speakers. Double-check that your vocal, snare, and main hook still cut through.`,
+      fixSteps: [
+        'Click "Hear in Phone / Mono" below to hear which instrument or vocal drops in volume.',
+        'Turn down stereo widener, chorus, or Haas-delay plugins on any lead element that gets too quiet.',
+      ],
+      jumpTarget: {
+        type: 'phase',
+        timeSec: stereo.worstPhaseSec !== null ? stereo.worstPhaseSec : loudness.loudestMomentSec,
+        label: 'Hear in Phone / Mono',
+        monitorMode: 'mono',
+      },
     });
   } else {
     checks.push({
@@ -1376,6 +1545,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: `${stereo.monoLossDb.toFixed(1)} dB fold`,
       detail: `Solid mono fold-down retention (width ${stereo.stereoWidthPct.toFixed(0)}%, L/R balance ${formatSignedDb(stereo.lrBalanceDb, 1)}).`,
+      plainTitle: 'Sounds solid on phones, clubs & mono speakers',
+      whatsWrong: 'Your stereo mix holds together cleanly when played through a phone speaker or mono club system.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   }
 
@@ -1388,6 +1561,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: '+1.00',
       detail: 'Native mono track — zero inter-channel phase cancellation.',
+      plainTitle: 'Clean stereo focus throughout the song',
+      whatsWrong: 'Native mono audio has perfect phase alignment from start to finish.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   } else if (stereo.globalCorrelation < 0.0) {
     checks.push({
@@ -1397,9 +1574,23 @@ export function buildPreFlightChecklist(report) {
       badge: 'FAIL',
       value: `r = ${stereo.globalCorrelation.toFixed(2)}`,
       detail: 'Track is globally out of phase (negative correlation). Check polarity inversion or stereo widener plugins.',
+      plainTitle: 'Left and right speakers are fighting each other (out of phase)',
+      whatsWrong: 'Your left and right channels cancel each other out across most of the song, causing a weird hollow sound on headphones and heavy volume loss in mono.',
+      fixSteps: [
+        'Click "Hear in Phone / Mono" below to hear the cancellation immediately.',
+        'Check your tracks and master bus for a flipped phase/polarity button (Ø) or an over-pushed stereo widener plugin.',
+        'Fix the polarity flip or reduce stereo widening, re-export, and re-check here.',
+      ],
+      jumpTarget: {
+        type: 'phase',
+        timeSec: stereo.worstPhaseSec !== null ? stereo.worstPhaseSec : 0,
+        label: 'Hear in Phone / Mono',
+        monitorMode: 'mono',
+      },
     });
   } else if (stereo.minCorrelation < -0.25 || stereo.globalCorrelation < 0.25) {
     const atStr = stereo.worstPhaseSec !== null ? ` at ${formatTime(stereo.worstPhaseSec, true)}` : '';
+    const atShort = stereo.worstPhaseSec !== null ? ` (especially around ${formatTime(stereo.worstPhaseSec)})` : '';
     checks.push({
       id: 'phase',
       label: 'Stereo Phase Correlation',
@@ -1407,6 +1598,20 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `Avg ${stereo.globalCorrelation.toFixed(2)} · Min ${stereo.minCorrelation.toFixed(2)}`,
       detail: `Phase dips negative${atStr} (${stereo.negativePhasePct.toFixed(1)}% of active windows < 0). Audition that section in Mono [M].`,
+      plainTitle: 'Some moments lose focus on mono speakers',
+      whatsWrong: `During parts of your song${atShort}, the left and right speakers briefly cancel out. Worth a quick listen in Mono to be sure nothing important disappears.`,
+      fixSteps: [
+        'Click the button below to jump straight to that spot in Phone / Mono mode.',
+        'Turn down stereo widener, chorus, or Haas-delay plugins on any instrument that vanishes there.',
+      ],
+      jumpTarget: {
+        type: 'phase',
+        timeSec: stereo.worstPhaseSec !== null ? stereo.worstPhaseSec : loudness.loudestMomentSec,
+        label: stereo.worstPhaseSec !== null
+          ? `Jump to ${formatTime(stereo.worstPhaseSec)} in Mono`
+          : 'Hear in Phone / Mono',
+        monitorMode: 'mono',
+      },
     });
   } else {
     checks.push({
@@ -1416,6 +1621,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: `Avg +${stereo.globalCorrelation.toFixed(2)} · Min ${stereo.minCorrelation >= 0 ? '+' : ''}${stereo.minCorrelation.toFixed(2)}`,
       detail: 'Coherent stereo phase across the entire program.',
+      plainTitle: 'Clean stereo focus throughout the song',
+      whatsWrong: 'Left and right channels stay nicely aligned from start to finish without fighting each other.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   }
 
@@ -1428,6 +1637,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: '+1.00',
       detail: 'Sub-120 Hz content is strictly mono.',
+      plainTitle: 'Tight, centered bass that hits in mono',
+      whatsWrong: 'Your low end is strictly centered so your kick and bass hit with full weight on every speaker.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   } else if (!stereo.lowEndHasContent) {
     checks.push({
@@ -1437,6 +1650,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: 'Minimal Sub',
       detail: 'Very little energy below 120 Hz — no sub-bass phase issues.',
+      plainTitle: 'Tight, centered bass that hits in mono',
+      whatsWrong: 'Very little sub-bass below 120 Hz, so there are zero low-end phase issues.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   } else if (stereo.lowEndCorrelation < 0.3) {
     checks.push({
@@ -1446,6 +1663,19 @@ export function buildPreFlightChecklist(report) {
       badge: 'FAIL',
       value: `r = ${stereo.lowEndCorrelation.toFixed(2)}`,
       detail: 'Sub-bass (< 120 Hz) has heavy stereo phase cancellation. Mono-sum frequencies below 100–120 Hz.',
+      plainTitle: 'Your bass / 808 will vanish on club & mono speakers',
+      whatsWrong: 'Your deep bass (below 120 Hz) is out of phase between left and right. On club speakers, phones, or vinyl, the low end cancels out and sounds thin.',
+      fixSteps: [
+        'Put an EQ or Mid/Side utility on your bass/808 track (or master bus).',
+        'Make everything below 120 Hz mono (cut the Side channel below 120 Hz).',
+        'Check again in Mono — your kick and 808 should feel noticeably heavier.',
+      ],
+      jumpTarget: {
+        type: 'loudest',
+        timeSec: loudness.loudestMomentSec,
+        label: 'Hear Bass in Mono',
+        monitorMode: 'mono',
+      },
     });
   } else if (stereo.lowEndCorrelation < 0.7) {
     checks.push({
@@ -1455,6 +1685,19 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `r = ${stereo.lowEndCorrelation.toFixed(2)}`,
       detail: 'Noticeable stereo width below 120 Hz. Check kick and sub-bass punch on mono club systems or vinyl.',
+      plainTitle: 'Your bass is a bit wide for mono club systems',
+      whatsWrong: 'Your sub-bass below 120 Hz has extra stereo width, which can rob your kick and 808 of punch on mono club rigs or phones.',
+      fixSteps: [
+        'Put an EQ or Mid/Side utility on your bass/808 track (or master bus).',
+        'Make everything below 120 Hz mono (cut the Side channel below 120 Hz).',
+        'Check again in Mono — your kick and 808 should feel noticeably heavier.',
+      ],
+      jumpTarget: {
+        type: 'loudest',
+        timeSec: loudness.loudestMomentSec,
+        label: 'Hear Bass in Mono',
+        monitorMode: 'mono',
+      },
     });
   } else {
     checks.push({
@@ -1464,6 +1707,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: `r = +${stereo.lowEndCorrelation.toFixed(2)}`,
       detail: 'Focused, phase-coherent low end below 120 Hz.',
+      plainTitle: 'Tight, centered bass that hits in mono',
+      whatsWrong: 'Your kick, bass, and 808 below 120 Hz stay tightly centered so they hit hard on every speaker.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   }
 
@@ -1476,6 +1723,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'FAIL',
       value: `DC ${integrity.dcOffsetPct.toFixed(2)}%`,
       detail: `Significant DC bias (${integrity.dcOffsetDb} dBFS) wastes headroom and causes edit clicks. Insert a 20–30 Hz high-pass filter.`,
+      plainTitle: 'Invisible speaker offset (DC offset) wasting headroom',
+      whatsWrong: 'Your audio waveform sits shifted off-center, which quietly eats up loudness headroom and can cause clicks at the start or end of playback.',
+      fixSteps: [
+        'Insert a high-pass filter set to 20–30 Hz at the start of your master chain (or enable your DAW’s DC Offset Removal).',
+        'Re-export your master and drop it back in here to confirm.',
+      ],
+      jumpTarget: {
+        type: 'intro',
+        timeSec: 0,
+        label: 'Hear Start (0:00)',
+        monitorMode: 'stereo',
+      },
     });
   } else if (integrity.dcOffsetMax > 0.005) {
     checks.push({
@@ -1485,6 +1744,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `DC ${integrity.dcOffsetPct.toFixed(2)}%`,
       detail: 'Minor DC offset present. Consider a gentle sub-sonic DC blocker before final print.',
+      plainTitle: 'Invisible speaker offset (DC offset) wasting headroom',
+      whatsWrong: 'There is a small electrical shift (DC offset) in the waveform. Filtering it out keeps transitions click-free and frees up clean headroom.',
+      fixSteps: [
+        'Insert a high-pass filter set to 20–30 Hz at the start of your master chain (or enable your DAW’s DC Offset Removal).',
+        'Re-export your master.',
+      ],
+      jumpTarget: {
+        type: 'intro',
+        timeSec: 0,
+        label: 'Hear Start (0:00)',
+        monitorMode: 'stereo',
+      },
     });
   } else if (integrity.headHardStart || integrity.tailHardEnd) {
     checks.push({
@@ -1494,6 +1765,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `Head ${integrity.headSilenceSec.toFixed(2)}s · Tail ${integrity.tailSilenceSec.toFixed(2)}s`,
       detail: 'Non-zero transient right at the file boundary — add a brief 5–20 ms fade to prevent playback clicks.',
+      plainTitle: 'Abrupt cut at the very start or end (can click)',
+      whatsWrong: 'Your song starts or cuts off right on a loud sample, which can cause an audible pop when a playlist moves to or from your track.',
+      fixSteps: [
+        'Zoom in on the very start and end of your song in your DAW.',
+        'Add a tiny 5–20 ms fade-in at 0:00 and a short fade-out at the end so it never pops between playlist tracks.',
+      ],
+      jumpTarget: {
+        type: 'intro',
+        timeSec: 0,
+        label: 'Hear Start (0:00)',
+        monitorMode: 'stereo',
+      },
     });
   } else if (integrity.headSilenceSec > 2.5 || integrity.tailSilenceSec > 6.0) {
     checks.push({
@@ -1503,6 +1786,18 @@ export function buildPreFlightChecklist(report) {
       badge: 'WARN',
       value: `Head ${integrity.headSilenceSec.toFixed(2)}s · Tail ${integrity.tailSilenceSec.toFixed(2)}s`,
       detail: 'Extended silence padding at head or tail — verify intentional release spacing.',
+      plainTitle: 'Long silent gap at the start or end',
+      whatsWrong: `There is ${integrity.headSilenceSec.toFixed(1)} s of silence at the start and ${integrity.tailSilenceSec.toFixed(1)} s at the end. Long empty gaps can make listeners think playback stalled.`,
+      fixSteps: [
+        'Trim extra silence before the first beat to under 0.2–0.5 seconds.',
+        'Trim trailing silence to 1–3 seconds after the final reverb tail fades out.',
+      ],
+      jumpTarget: {
+        type: 'intro',
+        timeSec: 0,
+        label: 'Hear Start (0:00)',
+        monitorMode: 'stereo',
+      },
     });
   } else {
     checks.push({
@@ -1512,6 +1807,10 @@ export function buildPreFlightChecklist(report) {
       badge: 'PASS',
       value: `DC ${integrity.dcOffsetPct.toFixed(2)}% · ${integrity.headSilenceSec.toFixed(2)}s / ${integrity.tailSilenceSec.toFixed(2)}s`,
       detail: 'Negligible DC offset with clean head and tail silence trim.',
+      plainTitle: 'Clean start, clean ending, zero offset',
+      whatsWrong: 'Your song starts and ends cleanly with zero electrical offset and tidy spacing.',
+      fixSteps: [],
+      jumpTarget: null,
     });
   }
 
@@ -1523,17 +1822,25 @@ export function buildPreFlightChecklist(report) {
   let overallHeadline = 'Cleared for Release';
   let overallStamp = 'CLEARED FOR RELEASE';
   let overallSubtitle = 'All broadcast loudness, true-peak ceiling, mono fold-down, and phase checks passed cleanly.';
+  let plainHeadline = 'Ready to Upload.';
+  let plainSubtitle = 'Every check passed — your song is clean, balanced, and ready for Spotify, Apple Music, YouTube, and TikTok.';
 
   if (failCount > 0) {
     overallStatus = 'fail';
     overallHeadline = 'Hold for Revision.';
     overallStamp = 'HOLD · ISSUES DETECTED';
     overallSubtitle = `${failCount} critical engineering flag${failCount === 1 ? '' : 's'} detected — review before uploading to distributors.`;
+    plainHeadline = failCount === 1
+      ? 'Fix 1 Thing Before Uploading.'
+      : `Fix ${failCount} Things Before Uploading.`;
+    plainSubtitle = `We caught ${failCount} issue${failCount === 1 ? '' : 's'} that could hurt how your song sounds on streaming${warnCount > 0 ? ` (plus ${warnCount} quick tip${warnCount === 1 ? '' : 's'})` : ''}. Follow the exact DAW steps below.`;
   } else if (warnCount > 0) {
     overallStatus = 'warn';
     overallHeadline = 'Cleared with Notes.';
     overallStamp = 'CLEARED WITH NOTES';
     overallSubtitle = `No hard blockers, but ${warnCount} advisory flag${warnCount === 1 ? '' : 's'} worth auditioning on the deck below.`;
+    plainHeadline = 'Almost Ready — Quick Tips.';
+    plainSubtitle = `No dealbreakers — your song is safe to upload, with ${warnCount} quick tip${warnCount === 1 ? '' : 's'} below to make it sound even cleaner.`;
   }
 
   return {
@@ -1541,6 +1848,8 @@ export function buildPreFlightChecklist(report) {
     overallHeadline,
     overallStamp,
     overallSubtitle,
+    plainHeadline,
+    plainSubtitle,
     passCount,
     warnCount,
     failCount,
@@ -1645,11 +1954,50 @@ export function runPreFlightAnalysis(channelDataList, sampleRate = 48000, meta =
 export function generatePreFlightMarkdown(report) {
   const { meta, loudness, truePeak, integrity, stereo, psrDb, plrDb, platforms, verdict } = report;
   const lines = [];
+  const issues = [
+    ...verdict.checks.filter((c) => c.status === 'fail'),
+    ...verdict.checks.filter((c) => c.status === 'warn'),
+  ];
 
-  lines.push(`# Pre-Flight Mastering Certificate — ${meta.filename}`);
+  lines.push(`# Pre-Flight Report — ${meta.filename}`);
   lines.push('');
-  lines.push(`> **Verdict:** **${verdict.overallStamp}** — ${verdict.overallSubtitle}`);
-  lines.push(`> Generated by **Pre-Flight (TOOL / 002)** · Saint Gordon Collective · ${meta.analyzedAt}`);
+  lines.push(`> **Verdict:** **${verdict.plainHeadline}** (${verdict.overallStamp}) — ${verdict.plainSubtitle}`);
+  lines.push(`> Generated by **Pre-Flight (TOOL / 002)** · [Saint Gordon Collective](https://saintgordon.github.io/pre-flight/) · ${meta.analyzedAt}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  lines.push('## Fix Steps (Plain English)');
+  lines.push('');
+
+  if (issues.length === 0) {
+    lines.push('All 7 checks passed — your master is clean and ready to upload to Spotify, Apple Music, YouTube, and TikTok.');
+    lines.push('');
+  } else {
+    issues.forEach((item, idx) => {
+      const tag = item.status === 'fail' ? 'MUST FIX' : 'QUICK TIP';
+      lines.push(`### Step ${idx + 1} (${tag}) — ${item.plainTitle} \`${item.value}\``);
+      lines.push('');
+      lines.push(`**What's happening:** ${item.whatsWrong}`);
+      lines.push('');
+      if (item.fixSteps && item.fixSteps.length > 0) {
+        lines.push('**How to fix it:**');
+        item.fixSteps.forEach((step, sIdx) => {
+          lines.push(`${sIdx + 1}. ${step}`);
+        });
+        lines.push('');
+      }
+    });
+  }
+
+  lines.push('## How Streaming Apps Will Play Your Song');
+  lines.push('');
+  lines.push('| Platform | Volume Change | Target | Plays At | Post-Norm Peak | Verdict |');
+  lines.push('|---|---|---|---|---|---|');
+  for (const p of platforms) {
+    lines.push(
+      `| **${p.name}** | ${p.plainAction} (${formatSignedDb(p.gainDb, 1)}) | ${p.targetLufs.toFixed(1)} LUFS | ${p.postNormLufs.toFixed(1)} LUFS | ${p.postNormTruePeakDb.toFixed(2)} dBTP | **${p.badge}** — ${p.plainStatus} |`
+    );
+  }
   lines.push('');
   lines.push('---');
   lines.push('');
@@ -1659,7 +2007,7 @@ export function generatePreFlightMarkdown(report) {
   lines.push(`- **Format:** ${meta.formatLabel || 'Audio'} · ${(meta.sampleRate / 1000).toFixed(1)} kHz · ${meta.channelLabel}`);
   lines.push(`- **Duration:** ${formatTime(meta.durationSec, true)}`);
   lines.push('');
-  lines.push('## Broadcast Loudness & True Peak');
+  lines.push('## Full Technical Numbers (Broadcast & Mastering)');
   lines.push('');
   lines.push('| Metric | Measurement | Standard |');
   lines.push('|---|---|---|');
@@ -1676,16 +2024,6 @@ export function generatePreFlightMarkdown(report) {
   lines.push(`| **Ceiling Breaches (> -1 dBTP)** | ${truePeak.ceilingBreachCount.toLocaleString()} | Streaming Ceiling |`);
   lines.push(`| **Clipped Samples / Hard Bursts** | ${integrity.clippedSampleCount.toLocaleString()} / ${integrity.clipBurstCount} | ≥ 3 Consecutive @ 0 dBFS |`);
   lines.push('');
-  lines.push('## Streaming Platform Normalization');
-  lines.push('');
-  lines.push('| Platform | Target | Gain Adj. | Post-Norm LUFS | Post-Norm True Peak | Status |');
-  lines.push('|---|---|---|---|---|---|');
-  for (const p of platforms) {
-    lines.push(
-      `| **${p.name}** | ${p.targetLufs.toFixed(1)} LUFS | ${formatSignedDb(p.gainDb, 1)} | ${p.postNormLufs.toFixed(1)} LUFS | ${p.postNormTruePeakDb.toFixed(2)} dBTP | **${p.badge}** |`
-    );
-  }
-  lines.push('');
   lines.push('## Mono Compatibility & Stereo Phase');
   lines.push('');
   lines.push(`- **Global Phase Correlation:** ${stereo.globalCorrelation >= 0 ? '+' : ''}${stereo.globalCorrelation.toFixed(2)}`);
@@ -1698,23 +2036,51 @@ export function generatePreFlightMarkdown(report) {
   lines.push('## Pre-Flight Checklist');
   lines.push('');
   for (const c of verdict.checks) {
-    lines.push(`- **[${c.badge}] ${c.label}** (${c.value}) — ${c.detail}`);
+    lines.push(`- **[${c.badge}] ${c.plainTitle}** (${c.value}) — ${c.whatsWrong}`);
   }
   lines.push('');
   lines.push('---');
-  lines.push('*Saint Gordon Collective · Independent sound. Imperfect by design.*');
+  lines.push('*Checked with [Pre-Flight](https://saintgordon.github.io/pre-flight/) · Saint Gordon Collective · Independent sound. Imperfect by design.*');
 
   return lines.join('\n');
 }
 
 export function generateCompactSummary(report) {
   const { meta, loudness, truePeak, integrity, stereo, psrDb, platforms, verdict } = report;
-  const platStr = platforms.map((p) => `${p.name} ${formatSignedDb(p.gainDb, 1)} [${p.badge}]`).join(' · ');
-  return [
-    `PRE-FLIGHT [${verdict.overallStamp}] — ${meta.filename}`,
-    `Loudness: ${loudness.integratedLufs.toFixed(1)} LUFS | True Peak: ${truePeak.truePeakDb.toFixed(2)} dBTP | Sample Peak: ${loudness.samplePeakDb.toFixed(2)} dBFS`,
-    `Dynamics: LRA ${loudness.lraLu.toFixed(1)} LU | PSR ${psrDb.toFixed(1)} dB | ST Max ${loudness.shortTermMaxLufs.toFixed(1)} LUFS | Clips: ${integrity.clippedSampleCount} (${integrity.clipBurstCount} bursts)`,
-    `Stereo/Mono: Phase ${stereo.globalCorrelation >= 0 ? '+' : ''}${stereo.globalCorrelation.toFixed(2)} (min ${stereo.minCorrelation.toFixed(2)}, <120Hz ${stereo.lowEndCorrelation.toFixed(2)}) | Mono fold ${stereo.monoLossDb.toFixed(1)} dB | Width ${stereo.stereoWidthPct.toFixed(0)}%`,
-    `Platforms: ${platStr}`,
-  ].join('\n');
+  const platStr = platforms.map((p) => `${p.name}: ${p.plainAction} [${p.badge}]`).join(' · ');
+  const issues = [
+    ...verdict.checks.filter((c) => c.status === 'fail'),
+    ...verdict.checks.filter((c) => c.status === 'warn'),
+  ];
+
+  const out = [
+    `PRE-FLIGHT — ${verdict.plainHeadline} (${meta.filename})`,
+    `Loudness: ${loudness.integratedLufs.toFixed(1)} LUFS | True Peak: ${truePeak.truePeakDb.toFixed(2)} dBTP | Clips: ${integrity.clipBurstCount} bursts (${integrity.clippedSampleCount} smp) | Mono fold: ${stereo.monoLossDb.toFixed(1)} dB`,
+    `Streaming: ${platStr}`,
+  ];
+
+  if (issues.length === 0) {
+    out.push('Fix Checklist: All 7 checks passed — ready to upload.');
+  } else {
+    out.push('Fix Checklist:');
+    issues.forEach((item, idx) => {
+      const tag = item.status === 'fail' ? 'MUST FIX' : 'TIP';
+      out.push(`${idx + 1}. [${tag}] ${item.plainTitle} (${item.value})`);
+      if (item.fixSteps && item.fixSteps.length > 0) {
+        out.push(`   -> ${item.fixSteps[0]}`);
+      }
+    });
+  }
+
+  out.push(`Tech: LRA ${loudness.lraLu.toFixed(1)} LU | PSR ${psrDb.toFixed(1)} dB | Phase ${stereo.globalCorrelation >= 0 ? '+' : ''}${stereo.globalCorrelation.toFixed(2)} (<120Hz ${stereo.lowEndCorrelation.toFixed(2)})`);
+  out.push('Checked at https://saintgordon.github.io/pre-flight/');
+  return out.join('\n');
 }
+
+// Backward-compatible named aliases
+export {
+  analyzeBroadcastLoudness as analyzeLoudness,
+  computePlatformNormalization as evaluateStreamingPlatforms,
+  generatePreFlightMarkdown as buildMarkdownReport,
+  generateCompactSummary as buildCompactSummary,
+};
